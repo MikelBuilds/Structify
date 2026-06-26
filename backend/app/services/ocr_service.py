@@ -1,28 +1,41 @@
 import pytesseract
-pytesseract.pytesseract.tesseract_cmd = (
-    r"C:\Program Files\Tesseract-OCR\tesseract.exe"
-)
-
-
+from app.config import settings
 from pdf2image import convert_from_path
+
+pytesseract.pytesseract.tesseract_cmd = settings.TESSERACT_PATH
 
 
 def extract_text_ocr(pdf_path: str) -> str:
-    """
-    Extract text from scanned PDFs using OCR.
-    """
 
     extracted_text = []
 
     try:
+        print("OCR Started")
+
+        print("Poppler Path:", repr(settings.POPPLER_PATH))
+
         images = convert_from_path(
-        pdf_path,
-        poppler_path=r"D:\poppler\Release-26.02.0-0\poppler-26.02.0\Library\bin"
-)
+            pdf_path,
+            poppler_path=settings.POPPLER_PATH
+        )
+
+        print(f"Number of images: {len(images)}")
+
+        if len(images) == 0:
+            print("No images generated!")
+            return ""
+
+        print("Saving debug image...")
+
+        images[0].save("debug.png")
+
+        print("Debug image saved!")
 
         for page_number, image in enumerate(images, start=1):
 
             page_text = pytesseract.image_to_string(image)
+
+            print(page_text)
 
             extracted_text.append(
                 f"\n----- PAGE {page_number} -----\n"
@@ -33,5 +46,6 @@ def extract_text_ocr(pdf_path: str) -> str:
         return "\n".join(extracted_text)
 
     except Exception as e:
-        print(f"OCR extraction error: {e}")
+        print("OCR ERROR:")
+        print(e)
         return ""
