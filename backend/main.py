@@ -8,8 +8,13 @@ from app.services.gemini_service import extract_invoice_data
 
 from app.config import settings
 
+from app.database.connection import Base, engine
+from app.database import models
+
 
 app = FastAPI()
+
+Base.metadata.create_all(bind=engine)
 
 UPLOAD_DIR = Path("uploads/originals")
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
