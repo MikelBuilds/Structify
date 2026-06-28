@@ -17,18 +17,25 @@ model = genai.GenerativeModel("gemini-2.5-flash")
 def extract_invoice_data(text):
 
     prompt = f"""
-You are an invoice extraction system.
+You are an OCR data extraction assistant. Extract fields from the text below, correcting obvious OCR errors (O→0, l→1, I→1, S→5, etc.) only when unambiguous.
 
-Extract:
+Extract these fields:
+- invoice_number (string)
+- invoice_date (YYYY-MM-DD)
+- customer_name (string)
+- amount (number, grand total, no symbols)
 
-- invoice_number
-- invoice_date
-- customer_name
-- amount
+Rules:
+- Set missing or uncertain fields to null
+- Never hallucinate values
+- Return ONLY valid JSON, no explanation
 
-Return ONLY valid JSON.
-
-Invoice Text:
+{{
+  "invoice_number": ...,
+  "invoice_date": ...,
+  "customer_name": ...,
+  "amount": ...
+}}
 
 {text}
 """
