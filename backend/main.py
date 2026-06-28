@@ -1,3 +1,9 @@
+from sqlalchemy.orm import Session
+from app.database.connection import get_db
+from app.database.models import Document
+
+from fastapi import Depends
+
 from fastapi import FastAPI, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from pathlib import Path
@@ -20,7 +26,10 @@ UPLOAD_DIR = Path("uploads/originals")
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 @app.post("/upload")
-async def upload_pdf(file: UploadFile = File(...)):
+async def upload_pdf(
+    file: UploadFile = File(...),
+    db : Session = Depends(get_db)
+):
 
     file_path = UPLOAD_DIR / file.filename
 
@@ -39,12 +48,23 @@ async def upload_pdf(file: UploadFile = File(...)):
     print("\n===== FINAL STRUCTURED DATA =====")
     print(structured_data)
 
+
+    document = Document(
+        filename=file.filename,
+        pdf_type=ocr_result["pdf_type"],
+        processing_method=ocr_result["method"],
+        status="completed",
+        raw_text=ocr_result["text"],
+        structured_json=structured_data
+    )
+
+    db.add(document)
+    db.commit()
+    db.refresh(document)
+
     return {
-        "message": "File processed successfully",
-        "filename": file.filename,
-        "pdf_type": ocr_result["pdf_type"],
-        "method": ocr_result["method"],
-        "structured_data": structured_data
+        "message": "Document stored successfully",
+        "document_id": document.id
     }
 
 app.add_middleware(
