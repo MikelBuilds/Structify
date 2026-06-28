@@ -6,6 +6,9 @@ import shutil
 from app.services.extraction_service import extract_text
 from app.services.gemini_service import extract_invoice_data
 
+from app.config import settings
+
+
 app = FastAPI()
 
 UPLOAD_DIR = Path("uploads/originals")
