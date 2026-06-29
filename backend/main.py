@@ -20,7 +20,9 @@ from app.database import models
 
 app = FastAPI()
 
+# Base.metadata.create_all(bind=engine) scans all SQLAlchemy models that inherit from Base and creates any missing tables in the connected database. It only creates tables that don't already exist and doesn't modify existing schemas.
 Base.metadata.create_all(bind=engine)
+
 
 UPLOAD_DIR = Path("uploads/originals")
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)

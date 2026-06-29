@@ -12,14 +12,10 @@ def extract_text_ocr(pdf_path: str) -> str:
     try:
         print("OCR Started")
 
-        print("Poppler Path:", repr(settings.POPPLER_PATH))
-
         images = convert_from_path(
             pdf_path,
             poppler_path=settings.POPPLER_PATH
         )
-
-        print(f"Number of images: {len(images)}")
 
         if len(images) == 0:
             print("No images generated!")
