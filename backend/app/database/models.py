@@ -16,7 +16,7 @@ class Document(Base):
 
     processing_method = Column(String, nullable=False)
 
-    status = Column(String, default="completed")
+    status = Column(String, default="processing")
 
     raw_text = Column(Text, nullable=False)
 
