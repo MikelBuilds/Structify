@@ -1,46 +1,109 @@
-# Logs
-logs
-*.log
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-pnpm-debug.log*
-lerna-debug.log*
+# ===========================
+# Structify .gitignore
+# ===========================
 
-# Python/Backend
+# ---------------------------
+# Python
+# ---------------------------
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg
+*.egg-info/
+*.pyc
+
+# Virtual Environment
+venv/
+.venv/
 backend/venv/
-backend/__pycache__/
-backend/*.pyc
-backend/*.pyo
-backend/*.pyd
-backend/.env
-backend/*.log
-backend/db.sqlite3
-backend/instance/
-backend/.webassets-cache
-backend/celerybeat-schedule
-backend/dist/
-backend/build/
-backend/*.egg-info/
+env/
 
-# Node.js/Frontend
+# ---------------------------
+# Environment Variables
+# ---------------------------
+.env
+*.env
+backend/.env
+frontend/.env
+
+# ---------------------------
+# IDE
+# ---------------------------
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# ---------------------------
+# OS Files
+# ---------------------------
+.DS_Store
+Thumbs.db
+
+# ---------------------------
+# Logs
+# ---------------------------
+*.log
+logs/
+
+# ---------------------------
+# Python Cache
+# ---------------------------
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# ---------------------------
+# Build
+# ---------------------------
+build/
+dist/
+
+# ---------------------------
+# Node
+# ---------------------------
+node_modules/
 frontend/node_modules/
 frontend/dist/
-frontend/.env
-frontend/.DS_Store
 
-node_modules
-dist
-dist-ssr
-*.local
+# ---------------------------
+# Uploads
+# ---------------------------
+backend/uploads/originals/*
+backend/uploads/processed/*
 
-# Editor directories and files
-.vscode/*
-!.vscode/extensions.json
-.idea
-.DS_Store
-*.suo
-*.ntvs*
-*.njsproj
-*.sln
-*.sw?
+# Keep folders in Git
+!backend/uploads/originals/.gitkeep
+!backend/uploads/processed/.gitkeep
+
+# ---------------------------
+# OCR Debug Images
+# ---------------------------
+debug.png
+
+# ---------------------------
+# SQLite
+# ---------------------------
+*.db
+*.sqlite3
+
+# ---------------------------
+# Jupyter
+# ---------------------------
+.ipynb_checkpoints/
+
+# ---------------------------
+# Temporary Files
+# ---------------------------
+*.tmp
+*.bak
+*.cache
+
+# ---------------------------
+# Repomix Output
+# ---------------------------
+repomix-output.md
