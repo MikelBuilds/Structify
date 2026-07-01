@@ -1,4 +1,7 @@
 import pdfplumber
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 def extract_text_pdfplumber(pdf_path: str) -> str:
@@ -19,6 +22,6 @@ def extract_text_pdfplumber(pdf_path: str) -> str:
 
         return "\n".join(extracted_text)
 
-    except Exception as e:
-        print(f"PDF extraction error: {e}")
+    except Exception:
+        logger.exception("PDF extraction failed.")
         return ""

@@ -1,10 +1,13 @@
 import os
 import json
-import google.generativeai as genai
+import logging
 
+import google.generativeai as genai
 from dotenv import load_dotenv
 
 load_dotenv()
+
+logger = logging.getLogger(__name__)
 
 genai.configure(
     api_key=os.getenv("GEMINI_API_KEY")
@@ -13,39 +16,40 @@ genai.configure(
 model = genai.GenerativeModel("gemini-2.5-flash")
 
 
-
-def extract_invoice_data(text):
+def extract_invoice_data(text: str):
 
     prompt = f"""
-You are an OCR data extraction assistant. Extract fields from the text below, correcting obvious OCR errors (O→0, l→1, I→1, S→5, etc.) only when unambiguous.
+You are an OCR data extraction assistant.
 
-Extract these fields:
-- invoice_number (string)
-- invoice_date (YYYY-MM-DD)
-- customer_name (string)
-- amount (number, grand total, no symbols)
+Extract information from the OCR text.
+
+Correct obvious OCR mistakes only when completely unambiguous.
+
+Examples:
+O -> 0
+I -> 1
+l -> 1
+S -> 5
 
 Rules:
-- Set missing or uncertain fields to null
-- Never hallucinate values
-- Return ONLY valid JSON, no explanation
 
-{{
-  "invoice_number": ...,
-  "invoice_date": ...,
-  "customer_name": ...,
-  "amount": ...
-}}
+- Never hallucinate values.
+- If a field is missing, return null.
+- Amount must be a number.
+- Date must be YYYY-MM-DD.
+
+Return ONLY valid JSON.
+
+OCR TEXT:
 
 {text}
 """
 
-    print("\n===== CALLING GEMINI =====")
+    logger.info("Calling Gemini...")
 
     response = model.generate_content(prompt)
 
-    print("\n===== RAW GEMINI RESPONSE =====")
-    print(response.text)
+    logger.debug("Gemini Response: %s", response.text)
 
     response_text = (
         response.text
@@ -54,5 +58,9 @@ Rules:
         .strip()
     )
 
-    return json.loads(response_text)
+    try:
+        return json.loads(response_text)
 
+    except json.JSONDecodeError:
+        logger.exception("Gemini returned invalid JSON.")
+        return {}

@@ -32,6 +32,19 @@ from app.crud.document_crud import (
 from app.services.extraction_service import extract_text
 from app.services.gemini_service import extract_invoice_data
 
+import logging
+
+
+logger = logging.getLogger(__name__)
+
+logging.basicConfig(
+
+    level=logging.INFO,
+
+    format="%(asctime)s %(levelname)s %(name)s : %(message)s"
+
+)
+
 
 app = FastAPI()
 
@@ -84,7 +97,7 @@ def process_document(
                 document
             )
 
-        print(e)
+        logger.exception(e)
 
     finally:
 

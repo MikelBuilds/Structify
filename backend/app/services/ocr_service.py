@@ -1,16 +1,24 @@
+import logging
+
 import pytesseract
-from app.config import settings
 from pdf2image import convert_from_path
+
+from app.config import settings
 
 pytesseract.pytesseract.tesseract_cmd = settings.TESSERACT_PATH
 
+logger = logging.getLogger(__name__)
+
 
 def extract_text_ocr(pdf_path: str) -> str:
+    """
+    Extract text from scanned PDFs using OCR.
+    """
 
     extracted_text = []
 
     try:
-        print("OCR Started")
+        logger.info("OCR Started")
 
         images = convert_from_path(
             pdf_path,
@@ -18,20 +26,14 @@ def extract_text_ocr(pdf_path: str) -> str:
         )
 
         if len(images) == 0:
-            print("No images generated!")
+            logger.warning("No images generated from PDF.")
             return ""
-
-        print("Saving debug image...")
-
-        images[0].save("debug.png")
-
-        print("Debug image saved!")
 
         for page_number, image in enumerate(images, start=1):
 
             page_text = pytesseract.image_to_string(image)
 
-            print(page_text)
+            logger.debug(page_text)
 
             extracted_text.append(
                 f"\n----- PAGE {page_number} -----\n"
@@ -41,7 +43,6 @@ def extract_text_ocr(pdf_path: str) -> str:
 
         return "\n".join(extracted_text)
 
-    except Exception as e:
-        print("OCR ERROR:")
-        print(e)
+    except Exception:
+        logger.exception("OCR extraction failed.")
         return ""

@@ -1,5 +1,8 @@
 from app.services.pdf_service import extract_text_pdfplumber
 from app.services.ocr_service import extract_text_ocr
+import logging
+
+logger = logging.getLogger(__name__) 
 
 
 def extract_text(pdf_path: str) -> dict:
@@ -21,7 +24,7 @@ def extract_text(pdf_path: str) -> dict:
             "text": text
         }
 
-    print("No text layer found. Running OCR...")
+    logger.info("No text layer found. Running OCR...")
 
     ocr_text = extract_text_ocr(pdf_path)
 
