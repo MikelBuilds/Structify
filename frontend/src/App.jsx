@@ -1,47 +1,32 @@
-import { useState } from "react";
-import axios from "axios";
+import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import Sidebar        from './components/Sidebar';
+import Navbar         from './components/Navbar';
+import Dashboard      from './pages/Dashboard';
+import DocumentDetail from './pages/DocumentDetail';
+import History        from './pages/History';
 
-function App() {
-  const [file, setFile] = useState(null);
-
-  const handleUpload = async () => {
-    if (!file) {
-      alert("Select a PDF first");
-      return;
-    }
-
-    const formData = new FormData();
-    formData.append("file", file);
-
-    try {
-      const res = await axios.post(
-        "http://localhost:8000/upload",
-        formData
-      );
-
-      console.log(res.data);
-      alert("Upload Successful");
-    } catch (err) {
-      console.error(err);
-      alert("Upload Failed");
-    }
-  };
-
+const App = () => {
   return (
-    <div>
-      <h1>PDF Upload</h1>
+    <BrowserRouter>
+      <div className="app-shell">
+        {/* Fixed sidebar */}
+        <Sidebar />
 
-      <input
-        type="file"
-        accept=".pdf"
-        onChange={(e) => setFile(e.target.files[0])}
-      />
+        {/* Main content area */}
+        <div className="app-main">
+          {/* Fixed top navbar */}
+          <Navbar />
 
-      <button onClick={handleUpload}>
-        Upload
-      </button>
-    </div>
+          {/* Page routes */}
+          <Routes>
+            <Route path="/"              element={<Dashboard />} />
+            <Route path="/history"       element={<History />} />
+            <Route path="/documents/:id" element={<DocumentDetail />} />
+          </Routes>
+        </div>
+      </div>
+    </BrowserRouter>
   );
-}
+};
 
 export default App;

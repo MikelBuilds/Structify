@@ -1,0 +1,78 @@
+/* ─── Design Tokens ─────────────────────────────────────────── */
+:root {
+  /* Backgrounds */
+  --bg-base:        #070b14;
+  --bg-surface:     #0d1424;
+  --bg-elevated:    #111827;
+  --bg-card:        rgba(17, 24, 39, 0.70);
+  --bg-glass:       rgba(255, 255, 255, 0.04);
+  --bg-glass-hover: rgba(255, 255, 255, 0.07);
+
+  /* Brand / Accent */
+  --accent-primary:  #6366f1;
+  --accent-hover:    #818cf8;
+  --accent-cyan:     #22d3ee;
+  --accent-cyan-dim: rgba(34, 211, 238, 0.15);
+  --accent-purple:   #a855f7;
+  --accent-gradient: linear-gradient(135deg, #6366f1 0%, #a855f7 100%);
+  --accent-glow:     0 0 40px rgba(99, 102, 241, 0.35);
+
+  /* Text */
+  --text-primary:   #f1f5f9;
+  --text-secondary: #94a3b8;
+  --text-muted:     #475569;
+  --text-accent:    #818cf8;
+
+  /* Status */
+  --status-processing-bg:  rgba(245, 158, 11, 0.12);
+  --status-processing-fg:  #fbbf24;
+  --status-processing-bdr: rgba(245, 158, 11, 0.30);
+  --status-completed-bg:   rgba(16, 185, 129, 0.12);
+  --status-completed-fg:   #34d399;
+  --status-completed-bdr:  rgba(16, 185, 129, 0.30);
+  --status-failed-bg:      rgba(239, 68, 68, 0.12);
+  --status-failed-fg:      #f87171;
+  --status-failed-bdr:     rgba(239, 68, 68, 0.30);
+
+  /* Borders */
+  --border-subtle:  rgba(255, 255, 255, 0.06);
+  --border-default: rgba(255, 255, 255, 0.10);
+  --border-accent:  rgba(99, 102, 241, 0.40);
+
+  /* Shadows */
+  --shadow-sm:  0 1px 3px rgba(0, 0, 0, 0.4);
+  --shadow-md:  0 4px 16px rgba(0, 0, 0, 0.5);
+  --shadow-lg:  0 8px 32px rgba(0, 0, 0, 0.6);
+  --shadow-glow: 0 0 24px rgba(99, 102, 241, 0.20);
+
+  /* Radius */
+  --radius-sm:  6px;
+  --radius-md:  10px;
+  --radius-lg:  16px;
+  --radius-xl:  24px;
+  --radius-full: 9999px;
+
+  /* Spacing */
+  --space-1:  4px;
+  --space-2:  8px;
+  --space-3:  12px;
+  --space-4:  16px;
+  --space-5:  20px;
+  --space-6:  24px;
+  --space-8:  32px;
+  --space-10: 40px;
+  --space-12: 48px;
+
+  /* Typography */
+  --font-sans:  'Inter', system-ui, -apple-system, sans-serif;
+  --font-mono:  'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
+
+  /* Layout */
+  --sidebar-width: 240px;
+  --navbar-height: 60px;
+
+  /* Transitions */
+  --transition-fast:   150ms cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-normal: 250ms cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-slow:   400ms cubic-bezier(0.4, 0, 0.2, 1);
+}
