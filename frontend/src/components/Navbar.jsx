@@ -1,15 +1,18 @@
-import { useLocation, Link } from 'react-router-dom';
+import { useLocation } from 'react-router-dom';
 
 /**
  * Navbar
- * Fixed top bar showing the current page title and status pill.
+ * Fixed top bar. Passes onMenuToggle for mobile hamburger.
+ *
+ * Props:
+ *  - onMenuToggle : () => void
  */
-const Navbar = () => {
+const Navbar = ({ onMenuToggle }) => {
   const location = useLocation();
 
   const pageTitles = {
-    '/':         { title: 'Dashboard', sub: 'Upload & monitor documents' },
-    '/history':  { title: 'History',   sub: 'All processed documents' },
+    '/':        { title: 'Dashboard', sub: 'Upload & monitor documents' },
+    '/history': { title: 'History',   sub: 'All processed documents' },
   };
 
   const current =
@@ -18,6 +21,17 @@ const Navbar = () => {
 
   return (
     <nav className="navbar">
+      {/* Hamburger — visible only on mobile */}
+      <button
+        className="navbar__hamburger"
+        onClick={onMenuToggle}
+        aria-label="Toggle sidebar"
+      >
+        <span />
+        <span />
+        <span />
+      </button>
+
       <div className="navbar__left">
         <span className="navbar__title">{current.title}</span>
         <span className="navbar__subtitle">{current.sub}</span>

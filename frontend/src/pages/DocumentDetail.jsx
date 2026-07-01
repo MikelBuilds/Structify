@@ -4,15 +4,20 @@ import { useDocuments } from '../hooks/useDocuments';
 import StatusBadge    from '../components/StatusBadge';
 import JSONViewer     from '../components/JSONViewer';
 import LoadingSpinner from '../components/LoadingSpinner';
+import PDFPane        from '../components/PDFPane';
 
 /**
  * DocumentDetail page
  * Route: /documents/:id
- * Fetches and displays the full document result with structured JSON.
+ *
+ * Layout (completed documents):
+ *  Desktop  → 40% PDF | 60% data
+ *  Tablet   → 50% / 50%
+ *  Mobile   → stacked vertically
  */
 const DocumentDetail = () => {
-  const { id }     = useParams();
-  const navigate   = useNavigate();
+  const { id }   = useParams();
+  const navigate = useNavigate();
 
   const { selectedDoc, loadingDoc, docError, selectDocument } = useDocuments();
 
@@ -52,7 +57,7 @@ const DocumentDetail = () => {
 
   const doc = selectedDoc;
   const date = doc.created_at
-    ? new Date(doc.created_at).toLocaleString('en-US', {
+    ? new Date(doc.created_at).toLocaleString('en-IN', {
         weekday: 'short',
         year:    'numeric',
         month:   'long',
@@ -73,7 +78,7 @@ const DocumentDetail = () => {
         ← Back to Documents
       </button>
 
-      {/* Hero Card */}
+      {/* Hero Card — always full width */}
       <div className="detail-hero animate-slide-up">
         <div className="detail-hero__top">
           <div className="detail-hero__title-group">
@@ -103,8 +108,9 @@ const DocumentDetail = () => {
           </div>
           <div className="detail-meta-item">
             <span className="detail-meta-item__label">File Name</span>
-            <span className="detail-meta-item__value"
-              style={{ fontSize: '0.8rem', fontFamily: 'var(--font-mono)' }}
+            <span
+              className="detail-meta-item__value"
+              style={{ fontSize: '0.8rem', fontFamily: 'var(--font-mono)', wordBreak: 'break-all' }}
             >
               {doc.filename}
             </span>
@@ -112,14 +118,31 @@ const DocumentDetail = () => {
         </div>
       </div>
 
-      {/* JSON Viewer */}
+      {/* Two-column layout for completed documents */}
       {doc.status === 'completed' && (
-        <div className="animate-slide-up" style={{ animationDelay: '100ms' }}>
-          <div className="section-header" style={{ marginBottom: 16 }}>
-            <h2 className="section-title">Extracted Data</h2>
-            <span className="text-xs text-muted">{fieldCount} field{fieldCount !== 1 ? 's' : ''}</span>
+        <div className="detail-split animate-slide-up" style={{ animationDelay: '80ms' }}>
+          {/* LEFT — PDF Preview */}
+          <div className="detail-split__pdf">
+            <div className="section-header" style={{ marginBottom: 12 }}>
+              <h2 className="section-title">PDF Preview</h2>
+            </div>
+            <PDFPane documentId={doc.id} filename={doc.filename} />
           </div>
-          <JSONViewer data={doc.structured_data} title="Structured Output" />
+
+          {/* RIGHT — Extracted Data */}
+          <div className="detail-split__data">
+            <div className="section-header" style={{ marginBottom: 12 }}>
+              <h2 className="section-title">Extracted Data</h2>
+              <span className="text-xs text-muted">
+                {fieldCount} field{fieldCount !== 1 ? 's' : ''}
+              </span>
+            </div>
+            <JSONViewer
+              data={doc.structured_data}
+              title="Structured Output"
+              documentId={doc.id}
+            />
+          </div>
         </div>
       )}
 

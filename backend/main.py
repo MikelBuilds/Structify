@@ -8,6 +8,7 @@ from fastapi import (
 )
 
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 
 from pathlib import Path
 import shutil
@@ -205,6 +206,40 @@ def list_documents(
 ):
 
     return get_all_documents(db)
+
+
+@app.get("/pdf/{document_id}")
+def serve_pdf(
+
+    document_id: int,
+
+    db: Session = Depends(get_db)
+
+):
+
+    document = get_document(db, document_id)
+
+    if not document:
+
+        raise HTTPException(
+            status_code=404,
+            detail="Document not found"
+        )
+
+    file_path = UPLOAD_DIR / document.filename
+
+    if not file_path.exists():
+
+        raise HTTPException(
+            status_code=404,
+            detail="PDF file not found on disk"
+        )
+
+    return FileResponse(
+        str(file_path),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f"inline; filename={document.filename}"}
+    )
 
 
 app.add_middleware(

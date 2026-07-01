@@ -7,11 +7,16 @@ const NAV_ITEMS = [
 
 /**
  * Sidebar
- * Fixed left navigation with brand logo and page links.
+ * Fixed left navigation.
+ * On mobile: hidden by default, slides in when isOpen = true.
+ *
+ * Props:
+ *  - isOpen  : boolean  (mobile only)
+ *  - onClose : () => void
  */
-const Sidebar = () => {
+const Sidebar = ({ isOpen, onClose }) => {
   return (
-    <aside className="sidebar">
+    <aside className={`sidebar ${isOpen ? 'sidebar--open' : ''}`}>
       {/* Brand */}
       <div className="sidebar__brand">
         <div className="sidebar__logo">S</div>
@@ -19,6 +24,14 @@ const Sidebar = () => {
           <div className="sidebar__brand-name">Structify</div>
           <span className="sidebar__brand-tag">AI</span>
         </div>
+        {/* Mobile close button */}
+        <button
+          className="sidebar__close-btn"
+          onClick={onClose}
+          aria-label="Close sidebar"
+        >
+          ✕
+        </button>
       </div>
 
       {/* Navigation */}
@@ -33,6 +46,7 @@ const Sidebar = () => {
             className={({ isActive }) =>
               `sidebar__item${isActive ? ' active' : ''}`
             }
+            onClick={onClose}   // close sidebar on nav on mobile
           >
             <span className="sidebar__icon">{icon}</span>
             {label}
