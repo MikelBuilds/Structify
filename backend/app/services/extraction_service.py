@@ -6,13 +6,6 @@ logger = logging.getLogger(__name__)
 
 
 def extract_text(pdf_path: str) -> dict:
-    """
-    Detect PDF type automatically.
-
-    1. Try pdfplumber
-    2. If text exists -> Digital PDF
-    3. Else -> OCR fallback
-    """
 
     text = extract_text_pdfplumber(pdf_path)
 
