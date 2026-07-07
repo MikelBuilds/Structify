@@ -35,7 +35,10 @@ The result is instantly viewable in a split-pane UI, copyable to clipboard, and 
 
 ## 🎬 Demo
 
+<img src="frontend/src/assets/DEMO_STRUCTIFY.gif" alt="Structify AI Document Extraction Demo" width="100%" />
+
 > **▶ [Watch the full demo video on Google Drive](https://drive.google.com/file/d/1WOl_qTwRvNO56OQ-oB2RlwviAZGAi7_S/view?usp=sharing)**
+
 
 ---
 
