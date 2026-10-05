@@ -5,7 +5,7 @@ export const formatKey = (key) => {
   if (!key || typeof key !== 'string') return key;
   return key
     .replace(/([a-z])([A-Z])/g, '$1 $2')   // camelCase split
-    .replace(/[_\-]+/g, ' ')               // snake_case / kebab
+    .replace(/[_-]+/g, ' ')               // snake_case / kebab
     .replace(/\b\w/g, (c) => c.toUpperCase())
     .trim();
 };
@@ -35,8 +35,8 @@ export const formatCurrency = (value) => {
 };
 
 // ── Date detection & formatting ───────────────────────────────
-const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}(T[\d:.Z+\-]*)?$/;
-const SLASH_DATE_RE = /^\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}$/;
+const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}(T[\d:.Z+-]*)?$/;
+const SLASH_DATE_RE = /^\d{1,2}[/-]\d{1,2}[/-]\d{2,4}$/;
 
 export const isDateString = (value) => {
   if (typeof value !== 'string') return false;

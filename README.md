@@ -1,3 +1,5 @@
+> Deployment: see [DEPLOYMENT.md](DEPLOYMENT.md) for Vercel + Render setup.
+
 <h1 align="center">
   <br>
   <img src="https://img.shields.io/badge/Structify-AI%20Document%20Extraction-6366f1?style=for-the-badge&logo=files&logoColor=white" alt="Structify" />

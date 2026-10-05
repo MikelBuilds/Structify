@@ -11,7 +11,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 
 from pathlib import Path
-import shutil
+from contextlib import asynccontextmanager
+from sqlalchemy import text
+from app.config import settings
 
 from sqlalchemy.orm import Session
 
@@ -47,12 +49,33 @@ logging.basicConfig(
 )
 
 
-app = FastAPI()
+UPLOAD_DIR = Path(settings.UPLOAD_DIR).resolve()
 
-Base.metadata.create_all(bind=engine)
 
-UPLOAD_DIR = Path("uploads/originals")
-UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+@asynccontextmanager
+async def lifespan(app):
+    if not settings.GEMINI_API_KEY:
+        raise RuntimeError("GEMINI_API_KEY must be configured")
+    UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+    Base.metadata.create_all(bind=engine)
+    # This deployment uses one worker; interrupted in-process tasks cannot resume.
+    with SessionLocal() as db:
+        db.execute(text("UPDATE documents SET status = 'failed' WHERE status = 'processing'"))
+        db.commit()
+    yield
+    engine.dispose()
+
+
+app = FastAPI(lifespan=lifespan)
+
+
+@app.get("/health")
+def health(db: Session = Depends(get_db)):
+    try:
+        db.execute(text("SELECT 1"))
+    except Exception:
+        raise HTTPException(status_code=503, detail="Database unavailable")
+    return {"status": "ok"}
 
 
 def process_document(
@@ -87,6 +110,7 @@ def process_document(
 
     except Exception as e:
 
+        db.rollback()
         document = get_document(
             db,
             document_id
@@ -116,34 +140,24 @@ async def upload_pdf(
 
 ):
 
-    if not file.filename.lower().endswith(".pdf"):
+    filename = (file.filename or "").replace("\\", "/").rsplit("/", 1)[-1]
+    if not filename.lower().endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="Only PDF files are allowed.")
 
-        raise HTTPException(
-            status_code=400,
-            detail="Only PDF files are allowed."
-        )
-
-    content = await file.read()
-
+    # Bound memory use even when Content-Length is absent or incorrect.
+    content = await file.read(20 * 1024 * 1024 + 1)
     if len(content) > 20 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="Maximum file size is 20 MB.")
+    if not content.startswith(b"%PDF-"):
+        raise HTTPException(status_code=400, detail="File is not a valid PDF.")
 
-        raise HTTPException(
-            status_code=400,
-            detail="Maximum file size is 20 MB."
-        )
-
-    file.file.seek(0)
-
-    file_path = UPLOAD_DIR / file.filename
-
-    with open(file_path, "wb") as buffer:
-
-        shutil.copyfileobj(file.file, buffer)
-
-    document = create_document(
-        db,
-        file.filename
-    )
+    document = create_document(db, filename)
+    file_path = UPLOAD_DIR / f"{document.id}.pdf"
+    try:
+        file_path.write_bytes(content)
+    except Exception:
+        mark_failed(db, document)
+        raise HTTPException(status_code=500, detail="Unable to store PDF")
 
     background_tasks.add_task(
         process_document,
@@ -226,7 +240,12 @@ def serve_pdf(
             detail="Document not found"
         )
 
-    file_path = UPLOAD_DIR / document.filename
+    file_path = UPLOAD_DIR / f"{document.id}.pdf"
+    if not file_path.exists():
+        # Support existing uploads without allowing paths outside the upload folder.
+        legacy_path = (UPLOAD_DIR / document.filename).resolve()
+        if legacy_path.parent == UPLOAD_DIR:
+            file_path = legacy_path
 
     if not file_path.exists():
 
@@ -238,7 +257,8 @@ def serve_pdf(
     return FileResponse(
         str(file_path),
         media_type="application/pdf",
-        headers={"Content-Disposition": f"inline; filename={document.filename}"}
+        filename=document.filename,
+        content_disposition_type="inline"
     )
 
 
@@ -246,7 +266,7 @@ app.add_middleware(
 
     CORSMiddleware,
 
-    allow_origins=["http://localhost:5173"],
+    allow_origins=settings.CORS_ORIGINS,
 
     allow_credentials=True,
 

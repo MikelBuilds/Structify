@@ -17,7 +17,7 @@ import { getDocuments, getResult } from '../api/documentApi';
  */
 export const useDocuments = () => {
   const [documents, setDocuments]   = useState([]);
-  const [loading, setLoading]       = useState(false);
+  const [loading, setLoading]       = useState(true);
   const [error, setError]           = useState(null);
 
   const [selectedDoc, setSelectedDoc]   = useState(null);
@@ -58,8 +58,16 @@ export const useDocuments = () => {
 
   // Initial load
   useEffect(() => {
-    fetchDocuments();
-  }, [fetchDocuments]);
+    let active = true;
+    getDocuments().then(data => {
+      if (active) setDocuments(Array.isArray(data) ? data : []);
+    }).catch(err => {
+      if (active) setError(err.message);
+    }).finally(() => {
+      if (active) setLoading(false);
+    });
+    return () => { active = false; };
+  }, []);
 
   return {
     documents,

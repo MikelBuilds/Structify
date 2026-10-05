@@ -21,6 +21,9 @@ def extract_text(pdf_path: str) -> dict:
 
     ocr_text = extract_text_ocr(pdf_path)
 
+    if not ocr_text.strip():
+        raise ValueError("No text could be extracted from PDF")
+
     return {
         "pdf_type": "scanned",
         "method": "tesseract",

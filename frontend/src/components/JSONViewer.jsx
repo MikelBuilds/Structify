@@ -112,7 +112,7 @@ const JSONViewer = ({ data, title = 'Extracted Data', documentId }) => {
       await navigator.clipboard.writeText(JSON.stringify(data, null, 2));
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
-    } catch (_) { /* ignore */ }
+    } catch { /* ignore */ }
   };
 
   const handleDownload = () => {

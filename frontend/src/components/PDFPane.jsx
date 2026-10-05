@@ -1,6 +1,6 @@
 import { useState } from 'react';
 
-const BASE_URL = 'http://localhost:8000';
+import { API_BASE_URL } from '../api/documentApi';
 
 /**
  * PDFPane
@@ -13,7 +13,7 @@ const BASE_URL = 'http://localhost:8000';
  */
 const PDFPane = ({ documentId, filename }) => {
   const [loadFailed, setLoadFailed] = useState(false);
-  const pdfUrl = `${BASE_URL}/pdf/${documentId}`;
+  const pdfUrl = `${API_BASE_URL}/pdf/${documentId}`;
 
   if (loadFailed) {
     return (

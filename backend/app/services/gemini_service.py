@@ -4,6 +4,7 @@ import logging
 
 import google.generativeai as genai
 from dotenv import load_dotenv
+from app.config import settings
 
 load_dotenv()
 
@@ -13,7 +14,7 @@ genai.configure(
     api_key=os.getenv("GEMINI_API_KEY")
 )
 
-model = genai.GenerativeModel("gemini-2.5-flash")
+model = genai.GenerativeModel(settings.GEMINI_MODEL)
 
 
 def extract_invoice_data(text: str):
@@ -47,7 +48,7 @@ OCR TEXT:
 
     logger.info("Calling Gemini...")
 
-    response = model.generate_content(prompt)
+    response = model.generate_content(prompt, request_options={"timeout": 120})
 
     logger.debug("Gemini Response: %s", response.text)
 
@@ -63,4 +64,4 @@ OCR TEXT:
 
     except json.JSONDecodeError:
         logger.exception("Gemini returned invalid JSON.")
-        return {}
+        raise ValueError("Gemini returned invalid JSON")

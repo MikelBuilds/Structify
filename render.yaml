@@ -1,0 +1,23 @@
+services:
+  - type: web
+    name: structify-api
+    runtime: docker
+    plan: starter
+    dockerContext: ./backend
+    dockerfilePath: ./backend/Dockerfile
+    healthCheckPath: /health
+    disk:
+      name: structify-pdfs
+      mountPath: /app/uploads
+      sizeGB: 1
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: CORS_ORIGINS
+        sync: false
+      - key: GEMINI_MODEL
+        value: gemini-2.5-flash
+      - key: UPLOAD_DIR
+        value: /app/uploads/originals

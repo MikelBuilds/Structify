@@ -3,12 +3,16 @@ from sqlalchemy.orm import sessionmaker,declarative_base
 
 from app.config import settings
 
+if not settings.DATABASE_URL:
+    raise RuntimeError("DATABASE_URL must be configured")
+
 #create postgres engine
 
 engine = create_engine(
     settings.DATABASE_URL,
     echo=False,
-    future=True
+    future=True,
+    pool_pre_ping=True
     )
 
 #database session
