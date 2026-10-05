@@ -3,10 +3,11 @@ from sqlalchemy.orm import Session
 from app.database.models import Document
 
 
-def create_document(db: Session, filename: str):
+def create_document(db: Session, filename: str, storage_key: str):
 
     document = Document(
         filename=filename,
+        storage_key=storage_key,
         pdf_type="",
         processing_method="",
         status="processing",
@@ -42,13 +43,15 @@ def update_document(
     document.raw_text = ocr_result["text"]
     document.structured_json = structured_data
     document.status = "completed"
+    document.error_message = None
 
     db.commit()
 
 
-def mark_failed(db: Session, document: Document):
+def mark_failed(db: Session, document: Document, message: str):
 
     document.status = "failed"
+    document.error_message = message
 
     db.commit()
 

@@ -42,7 +42,7 @@ export const useUpload = () => {
             setUploadState('completed');
           } else if (data.status === 'failed') {
             stopPolling();
-            setError('Extraction failed. Please try again.');
+            setError(data.error_message || 'Extraction failed. Please try again.');
             setUploadState('failed');
           }
           // else still processing – keep polling

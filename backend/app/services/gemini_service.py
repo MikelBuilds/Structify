@@ -1,20 +1,10 @@
-import os
 import json
 import logging
-
-import google.generativeai as genai
-from dotenv import load_dotenv
+from google import genai
+from google.genai import types
 from app.config import settings
 
-load_dotenv()
-
 logger = logging.getLogger(__name__)
-
-genai.configure(
-    api_key=os.getenv("GEMINI_API_KEY")
-)
-
-model = genai.GenerativeModel(settings.GEMINI_MODEL)
 
 
 def extract_invoice_data(text: str):
@@ -48,9 +38,12 @@ OCR TEXT:
 
     logger.info("Calling Gemini...")
 
-    response = model.generate_content(prompt, request_options={"timeout": 120})
+    with genai.Client(api_key=settings.GEMINI_API_KEY,
+                      http_options=types.HttpOptions(timeout=120_000)) as client:
+        response = client.models.generate_content(model=settings.GEMINI_MODEL, contents=prompt)
+    if not response.text:
+        raise ValueError("Gemini returned no text")
 
-    logger.debug("Gemini Response: %s", response.text)
 
     response_text = (
         response.text

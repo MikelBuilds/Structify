@@ -1,4 +1,4 @@
-> Deployment: see [DEPLOYMENT.md](DEPLOYMENT.md) for Vercel + Render setup.
+> Deployment: see [DEPLOYMENT.md](DEPLOYMENT.md) for Vercel + Render Free + Neon + private Cloudflare R2 setup.
 
 <h1 align="center">
   <br>
@@ -119,6 +119,9 @@ Single table: **`documents`**
 | `status` | `VARCHAR` | `"processing"` / `"completed"` / `"failed"` |
 | `raw_text` | `TEXT` | Full extracted text before AI |
 | `structured_json` | `JSONB` | Final AI-structured output |
+| `storage_key` | `TEXT` | Private R2 object key (null for unmigrated legacy PDFs) |
+| `error_message` | `TEXT` | Processing failure details |
+| `updated_at` | `TIMESTAMPTZ` | Last update time |
 | `created_at` | `TIMESTAMPTZ` | Auto-set on insert |
 
 ---
@@ -143,7 +146,7 @@ Interactive API docs available at `http://localhost:8000/docs` (Swagger UI).
 | Layer | Technology |
 |---|---|
 | **Backend Framework** | FastAPI + Uvicorn |
-| **AI / LLM** | Google Gemini 2.5 Flash (`google-generativeai`) |
+| **AI / LLM** | Google Gemini 2.5 Flash (`google-genai`) |
 | **Digital PDF Parsing** | pdfplumber |
 | **OCR Engine** | Tesseract + pytesseract |
 | **PDF → Image** | pdf2image + Poppler |
@@ -156,6 +159,25 @@ Interactive API docs available at `http://localhost:8000/docs` (Swagger UI).
 
 ---
 
+## Free-tier deployment
+
+React/Vite → **Vercel**; FastAPI/Docker → **Render Free**;
+PostgreSQL → **Neon**; original PDFs → **Cloudflare R2**;
+OCR → **Tesseract + Poppler**; AI → **Gemini** (`google-genai`).
+
+Use one backend instance/worker and no Render persistent disk. Render's filesystem
+is ephemeral; originals live in R2 and OCR uses temporary files. Free instances
+may sleep, so the first request can be slow. Stay within provider free allowances;
+R2 and Gemini billing depend on usage/account settings.
+
+Render secrets: `DATABASE_URL`, `GEMINI_API_KEY`, `CORS_ORIGINS`, `R2_ACCOUNT_ID`,
+`R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET_NAME`, `R2_ENDPOINT`.
+Vercel: only `VITE_API_BASE_URL=https://<backend>.onrender.com`.
+
+See [the complete deployment guide](DEPLOYMENT.md) for exact provider setup,
+local development, environment variables, optional local-PDF migration, and checks.
+The existing PostgreSQL data/IDs and UI are retained; no MongoDB dependency existed.
+
 ##  Getting Started
 
 ### Prerequisites
@@ -163,7 +185,7 @@ Interactive API docs available at `http://localhost:8000/docs` (Swagger UI).
 Make sure the following are installed on your system:
 
 - Python 3.11+
-- Node.js 18+
+- Node.js 24.x
 - [Tesseract OCR](https://github.com/UB-Mannheim/tesseract/wiki) (Windows installer)
 - [Poppler for Windows](https://github.com/oschwartz10612/poppler-windows/releases)
 - A [Google Gemini API key](https://aistudio.google.com/app/apikey)
@@ -195,14 +217,11 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-Create a `.env` file in the `backend/` directory:
-
-```env
-GEMINI_API_KEY=your_gemini_api_key_here
-TESSERACT_PATH=C:\Program Files\Tesseract-OCR\tesseract.exe
-POPPLER_PATH=C:\path\to\poppler\bin
-DATABASE_URL=postgresql://user:password@host/dbname?sslmode=require
-```
+Copy `backend/.env.example` to `backend/.env` and fill in `DATABASE_URL`,
+`GEMINI_API_KEY`, `CORS_ORIGINS`, and the five `R2_*` settings. See
+[DEPLOYMENT.md](DEPLOYMENT.md) for exact Neon and private R2 setup. For native
+Windows OCR only, set `TESSERACT_PATH` and `POPPLER_PATH` if not on PATH; leave
+both unset in Docker. Never put backend credentials in frontend variables.
 
 Start the backend:
 
@@ -219,7 +238,7 @@ Interactive docs at `http://localhost:8000/docs`
 
 ```bash
 cd frontend
-npm install
+npm ci
 npm run dev
 ```
 
@@ -235,7 +254,7 @@ structify/
 │   ├── main.py                   # FastAPI app + all route definitions
 │   ├── requirements.txt
 │   ├── .env                      # Environment variables (never commit this)
-│   ├── uploads/originals/        # Uploaded PDFs stored here
+│   ├── scripts/migrate_local_pdfs.py # Optional legacy PDF -> R2 migration
 │   └── app/
 │       ├── config.py             # Settings class
 │       ├── database/
@@ -276,7 +295,7 @@ structify/
 
 ##  How the AI Pipeline Works
 
-1. **Upload** — PDF is saved to `uploads/originals/` and a DB record is created with `status="processing"`
+1. **Upload** — PDF is copied to temporary storage, uploaded to private R2, and a DB record is created with `status="processing"`
 2. **Text Extraction** — `extraction_service.py` first attempts `pdfplumber` (fast, lossless for digital PDFs). If no text layer is found, it falls back to `Tesseract OCR` via `pdf2image`
 3. **AI Structuring** — The extracted raw text is sent to **Gemini 2.5 Flash** with a strict prompt:
    - Never hallucinate — missing fields return `null`
@@ -284,14 +303,15 @@ structify/
    - Dates must be `YYYY-MM-DD`; amounts must be numbers
    - Return only valid JSON
 4. **Storage** — Gemini's JSON response is parsed and stored in a `JSONB` column alongside the raw text, PDF type, and processing method
-5. **Retrieval** — Frontend polls `GET /results/{id}` every 2 seconds until `status` is no longer `"processing"`
+5. **Cleanup** — Temporary originals and OCR page images are removed on success or failure; R2 retains the original.
+6. **Retrieval** — Frontend polls `GET /results/{id}` every 2 seconds until `status` is no longer `"processing"`
 
 ---
 
 ##  Potential Improvements
 
-- [ ] Docker + docker-compose for one-command setup
-- [ ] `.env.example` template file
+- [x] Docker backend with Tesseract + Poppler
+- [x] `.env.example` template file
 - [ ] Alembic database migrations
 - [ ] Authentication & per-user document isolation
 - [ ] WebSocket push instead of polling

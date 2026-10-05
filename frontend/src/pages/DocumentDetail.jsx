@@ -155,7 +155,7 @@ const DocumentDetail = () => {
       {doc.status === 'failed' && (
         <div className="card" style={{ textAlign: 'center', padding: 48 }}>
           <p className="text-sm" style={{ color: 'var(--status-failed-fg)' }}>
-            Extraction failed for this document.
+            {doc.error_message || 'Extraction failed for this document.'}
           </p>
         </div>
       )}
