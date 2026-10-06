@@ -1,6 +1,10 @@
 // Wait after each response so slow requests cannot accumulate in-flight polls.
 export function startResultPolling(fetchResult, onResult, onError,
-  timers = { schedule: setTimeout, cancel: clearTimeout }) {
+  timers = {
+    // Browser timers must be called on the global object, not on `timers`.
+    schedule: (callback, delay) => globalThis.setTimeout(callback, delay),
+    cancel: timer => globalThis.clearTimeout(timer),
+  }) {
   const controller = new AbortController();
   let stopped = false;
   let timer;

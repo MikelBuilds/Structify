@@ -89,3 +89,23 @@ test('failed request reports once without an automatic retry loop', async () => 
   assert.equal(failures, 1);
   assert.equal(timers.jobs.size, 0);
 });
+
+test('default timers preserve the browser global receiver', async (t) => {
+  const jobs = new Map();
+  let id = 0;
+  t.mock.method(globalThis, 'setTimeout', function (callback, delay) {
+    if (this !== globalThis) throw new TypeError('Illegal invocation');
+    assert.equal(delay, 2000);
+    jobs.set(++id, callback);
+    return id;
+  });
+  t.mock.method(globalThis, 'clearTimeout', function (timer) {
+    if (this !== globalThis) throw new TypeError('Illegal invocation');
+    jobs.delete(timer);
+  });
+  const stop = startResultPolling(async () => ({ status: 'completed' }), () => false, assert.fail);
+  assert.equal(jobs.size, 1);
+  await jobs.get(1)();
+  assert.equal(jobs.size, 0);
+  stop();
+});
