@@ -12,7 +12,6 @@ class Document(Base):
 
     filename = Column(String, nullable=False)
 
-    storage_key = Column(Text, nullable=True)
     error_message = Column(Text, nullable=True)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 

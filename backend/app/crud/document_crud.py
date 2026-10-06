@@ -3,11 +3,10 @@ from sqlalchemy.orm import Session
 from app.database.models import Document
 
 
-def create_document(db: Session, filename: str, storage_key: str):
+def create_document(db: Session, filename: str):
 
     document = Document(
         filename=filename,
-        storage_key=storage_key,
         pdf_type="",
         processing_method="",
         status="processing",

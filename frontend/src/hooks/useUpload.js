@@ -1,7 +1,7 @@
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import { uploadDocument, getResult } from '../api/documentApi';
 
-const POLL_INTERVAL_MS = 2000;
+import { startResultPolling } from '../utils/resultPolling';
 
 /**
  * useUpload
@@ -22,67 +22,64 @@ export const useUpload = () => {
   const [error, setError]                 = useState(null);
 
   const pollRef = useRef(null);
+  const uploadRef = useRef(null);
 
   const stopPolling = useCallback(() => {
-    if (pollRef.current) {
-      clearInterval(pollRef.current);
-      pollRef.current = null;
-    }
+    pollRef.current?.();
+    pollRef.current = null;
   }, []);
 
-  const startPolling = useCallback(
-    (taskId) => {
-      pollRef.current = setInterval(async () => {
-        try {
-          const data = await getResult(taskId);
+  useEffect(() => () => {
+    stopPolling();
+    uploadRef.current?.abort();
+  }, [stopPolling]);
 
+  const handleUpload = useCallback(async (file) => {
+    if (!file) return;
+    stopPolling();
+    uploadRef.current?.abort();
+    const controller = new AbortController();
+    uploadRef.current = controller;
+    setError(null);
+    setResult(null);
+    setUploadProgress(0);
+    setUploadState('uploading');
+    try {
+      const { task_id } = await uploadDocument(file, (pct) => {
+        if (!controller.signal.aborted) setUploadProgress(pct);
+      }, controller.signal);
+      if (controller.signal.aborted) return;
+      setUploadState('processing');
+      pollRef.current = startResultPolling(
+        signal => getResult(task_id, signal),
+        data => {
           if (data.status === 'completed') {
-            stopPolling();
             setResult(data);
             setUploadState('completed');
-          } else if (data.status === 'failed') {
-            stopPolling();
+            return false;
+          }
+          if (data.status === 'failed') {
             setError(data.error_message || 'Extraction failed. Please try again.');
             setUploadState('failed');
+            return false;
           }
-          // else still processing – keep polling
-        } catch (err) {
-          stopPolling();
+          return true;
+        },
+        err => {
           setError(err.message);
           setUploadState('failed');
-        }
-      }, POLL_INTERVAL_MS);
-    },
-    [stopPolling]
-  );
-
-  const handleUpload = useCallback(
-    async (file) => {
-      if (!file) return;
-
-      // Reset state
-      setError(null);
-      setResult(null);
-      setUploadProgress(0);
-      setUploadState('uploading');
-
-      try {
-        const { task_id } = await uploadDocument(file, (pct) => {
-          setUploadProgress(pct);
-        });
-
-        setUploadState('processing');
-        startPolling(task_id);
-      } catch (err) {
-        setError(err.message);
-        setUploadState('failed');
-      }
-    },
-    [startPolling]
-  );
+        },
+      );
+    } catch (err) {
+      if (controller.signal.aborted) return;
+      setError(err.message);
+      setUploadState('failed');
+    }
+  }, [stopPolling]);
 
   const reset = useCallback(() => {
     stopPolling();
+    uploadRef.current?.abort();
     setUploadState('idle');
     setUploadProgress(0);
     setResult(null);

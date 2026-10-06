@@ -1,298 +1,250 @@
-# Free-tier deployment: Vercel + Render + Neon + Cloudflare R2
+# Structify deployment
 
-## Architecture and repository findings
+Architecture: React/Vite on Vercel, FastAPI/Docker on Render Free, Neon PostgreSQL,
+Tesseract + Poppler OCR, and Gemini through `google-genai`. Uploaded PDFs are
+processed in `/tmp` and deleted; extracted JSON, raw text and metadata persist in
+Neon. Permanent PDF preview is intentionally unavailable.
 
-| Component | Before | Now |
-| --- | --- | --- |
-| Frontend | React/Vite in `frontend`, prepared for Vercel | Same UI and routes; Vercel Hobby where eligible |
-| Backend | FastAPI in `backend`, Render Starter + disk | Render Free, Docker, one instance and one Uvicorn worker |
-| Database | SQLAlchemy/PostgreSQL with JSONB | Neon PostgreSQL, SQLAlchemy 2.x and psycopg 3 |
-| Originals | Local `uploads/originals`, requiring durable disk | Private Cloudflare R2 bucket |
-| OCR | pdfplumber; Poppler/Tesseract fallback | Same distinction, temporary files, one page/job at a time |
-| AI | Deprecated `google-generativeai` | Supported `google-genai`, same prompt and JSON output |
+Follow A–G in order. All URLs and credentials below are placeholders.
 
-No MongoDB models, queries, packages, data exports, or migration scripts were found
-in this repository. No MongoDB data was touched and no speculative Mongo importer
-was added. Alembic was an unused requirements entry, with no configuration or
-revision directory; the demo keeps simple additive startup schema initialization.
-Existing local PDFs are supported by the optional migration below.
+## A. Neon
 
-The original integer `documents.id` is retained to preserve existing links and
-rows. UUIDs identify R2 objects, not database records. The existing columns
-`filename`, `pdf_type`, `processing_method`, `status`, `raw_text`,
-`structured_json` (JSONB), and `created_at` (TIMESTAMPTZ) remain.
-Startup adds `storage_key` (TEXT), `error_message` (TEXT), and `updated_at`
-(TIMESTAMPTZ). It backfills update timestamps from creation times. Existing rows
-and extracted JSON are preserved. `filename` already stores the original name,
-so a duplicate `original_filename` column is unnecessary. API results still use
-`structured_data` for compatibility with the React app.
-
-Routes remain `POST /upload`, `GET /results/{id}`, `GET /documents`,
-`GET /pdf/{id}`, and `GET /health`. Search/filtering remains client-side.
-There was no document deletion feature, so none was added.
-
-Uploads are validated and copied to a temporary directory, stored in R2 with a
-UUID key, and recorded in PostgreSQL. The request's temporary copy is removed.
-A background task downloads its own temporary copy, extracts text, invokes
-Gemini, saves results, and cleans up. Docker uses `/tmp`; native local runs use
-the OS temporary directory. R2 originals survive processing failures and restarts.
-The PDF route issues a non-cacheable redirect to a five-minute signed R2 URL
-with `application/pdf` and an inline filename; the existing iframe follows it.
-Refresh the app's PDF endpoint to obtain a new URL after expiration. The bucket
-stays private and requires no browser credentials or public access.
-
-## Free-tier limits
-
-No paid Render service or persistent disk is configured. Select free plans for
-Neon and Vercel, and use R2 **Standard** storage within its free allowance.
-This is a free-tier architecture, not a guarantee of zero charges under unlimited
-usage: R2 currently includes 10 GB-months, 1 million Class A and 10 million Class B
-operations monthly; excess usage is billed. Enabling R2 may require billing setup.
-Check [R2 pricing](https://developers.cloudflare.com/r2/pricing/) before activation.
-Use a Gemini free-tier project/model where available; paid Gemini projects can
-charge for API calls. Check [Gemini billing](https://ai.google.dev/gemini-api/docs/billing/).
-Do not enable paid upgrades to follow this guide.
-
-[Render Free](https://render.com/docs/free) instances sleep after 15 minutes without
-inbound traffic. The first request after inactivity can be slow. The frontend now
-allows 120 seconds per API request; this does not guarantee a cold start finishes
-within that time. All Render local files are disposable, which is why R2 is required.
-Free services have resource and usage limits; large PDFs may still exceed the small
-instance's resources. OCR renders a single page at a time with bounded dimensions
-and timeouts to reduce memory pressure.
-
-## 1. Neon setup
-
-1. Sign in to the Neon Console. Open the existing project/database used by
-   Structify; retain it if its history is needed. If starting fresh, create a
-   Free project, database and role in a region close to the Render service.
-2. Click **Connect**, select the correct branch, database and role, and copy
-   its PostgreSQL connection string. A pooled URL is supported.
-3. Keep `sslmode=require` (or stronger verification) and any Neon-supplied
-   `channel_binding` parameter. The app converts `postgresql://` to
-   SQLAlchemy's `postgresql+psycopg://` internally and requires TLS on Neon hosts.
-4. Set this exact value as backend `DATABASE_URL`. Do not put it in Vercel.
-5. The role must own or be allowed to create/alter the `documents` table.
-   Startup creates a missing table or adds the three columns above to an existing
-   table. Take a database backup/branch before applying to valuable existing data.
-6. Deploy the backend and check `/health` returns `{"status":"ok"}`. Missing,
-   malformed, unreachable or unauthorized database configuration prevents startup
-   with a clear message. No manual SQL schema creation is needed.
-
-Example (placeholder only):
+1. Open [Neon Console](https://console.neon.tech/).
+2. Select your existing project/database, or create a project on the Free plan.
+   Keep the existing database if you want its document history.
+3. Click **Connect**, select the correct branch, database and role, and copy the
+   PostgreSQL connection string. Both pooled and direct Neon URLs are supported.
+4. Ensure the URL contains `sslmode=require` (or `verify-ca`/`verify-full`). Keep
+   additional Neon-provided parameters such as `channel_binding=require`.
+5. Save this URL for Render's `DATABASE_URL` environment variable. Never put it in
+   Vercel or commit it to GitHub. For local development, use `backend/.env`.
 
 ```env
-DATABASE_URL=postgresql://USER:PASSWORD@ep-example-pooler.REGION.aws.neon.tech/neondb?sslmode=require
+DATABASE_URL=postgresql://USER:PASSWORD@HOST/DB?sslmode=require
 ```
 
-Use the console-generated URL to avoid password encoding mistakes.
-[Neon connection documentation](https://github.com/neondatabase/website/blob/main/content/docs/get-started/connect-neon.md).
+SQLAlchemy uses psycopg 3, checks pooled connections before reuse, and allows up
+to five connections per worker (pool size 3 plus 2 overflow), with a 10-second
+connection timeout. Missing/malformed database URLs fail clearly. Neon hosts use
+TLS. Startup retains the existing create-table/additive-upgrade behavior; the
+role must have permission to create/alter the `documents` table. Back up valuable
+existing data before first deployment. No destructive schema migration is added.
 
-## 2. Cloudflare R2 setup
+## B. Gemini
 
-1. Sign in to Cloudflare, open **R2 Object Storage**, and enable R2 if necessary.
-   Review the billing terms; the Standard free allowance is usage-limited.
-2. Create a bucket, for example `structify-pdfs`, using **Standard** storage.
-3. Keep public access disabled: do not enable an `r2.dev` public URL or attach a
-   public custom domain. This implementation uses the S3 API endpoint.
-4. In R2 API token management, create a token with **Object Read & Write**, scoped
-   only to this bucket. Save its **Access Key ID** and **Secret Access Key**;
-   a generic Cloudflare API token is not the S3 secret.
-5. Copy the Account ID and the bucket's S3 API endpoint, normally
-   `https://<ACCOUNT_ID>.r2.cloudflarestorage.com`.
-6. Put the five R2 variables below in Render and your local backend `.env`.
-   No R2 CORS rule is needed for iframe/navigation to signed URLs; the frontend
-   does not fetch R2 via JavaScript. No R2 secret goes to Vercel.
+Open [Google AI Studio](https://aistudio.google.com/apikey) and create/select a
+Gemini API key. Set it as `GEMINI_API_KEY` in Render and, for local development,
+`backend/.env`. Use a free-tier project/model without enabling paid billing.
 
-[Cloudflare token instructions](https://developers.cloudflare.com/r2/api/tokens/)
-and [signed URL behavior](https://developers.cloudflare.com/r2/api/s3/presigned-urls/).
+The optional `GEMINI_MODEL` defaults to `gemini-2.5-flash`; use a model available
+to your account. The supported `google-genai` SDK is used, with the existing
+extraction prompt and JSON structure. Gemini failures mark the document failed
+with a safe stage/type explanation. The API key never goes into Vite variables.
 
-## 3. Render deployment
+## C. GitHub
 
-1. Commit and push the repository changes to your Git provider. No push or cloud
-   provisioning is performed by the code changes themselves.
-2. In Render choose **New > Blueprint**, connect the repository, and use
-   `render.yaml` at its root. It defines a Docker web service with `plan: free`,
-   one instance, no disks, and `/health` health checks. Do not create a Render database.
-3. Fill in the prompted variables from the table below. For CORS use the intended
-   Vercel production origin; update it once Vercel assigns the final domain.
-4. Review that the service is **Free**, then create/deploy it. For an existing
-   Starter service, explicitly switch its instance type to Free and remove its
-   disk only **after** migrating any originals from that disk to R2. Removing a disk
-   can delete data; this repository change does not remove a live disk for you.
-5. Record `https://<service-name>.onrender.com`. Visit `/health` and `/docs`.
-6. If setting up a service manually: repository root stays the root, Dockerfile
-   path is `backend/Dockerfile`, Docker build context is `backend`, instance type
-   is Free, health check is `/health`, and no Docker command override is needed.
+From the Structify repository root, review the changes and run:
 
-Docker installs Tesseract and Poppler on Linux PATH, runs as a non-root user,
-and starts `uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000} --workers 1`.
-Render supplies `PORT`; do not configure Windows OCR paths or `UPLOAD_DIR`.
+```bash
+git status
+git add .
+git commit -m "prepare Structify deployment"
+git push
+```
 
-## Environment variables
+These commands are for you to execute; preparation does not automatically commit
+or push. `.env`, `.env.*` variants and Python bytecode are ignored, while
+`.env.example` templates remain tracked. Review `git status` before staging to
+avoid including unrelated files. Existing local credentials/data are preserved.
 
-### Render / local backend only
+## D. Render
 
-| Variable | Value |
+1. Open Render and choose **New → Blueprint**.
+2. Connect GitHub and select the Structify repository and intended branch.
+3. Render reads `render.yaml` at the repository root.
+4. Confirm the web service uses Docker and the **Free** plan.
+5. Confirm there is **no persistent disk** and exactly **one instance**.
+6. Set the environment variables below. Initially, `CORS_ORIGINS` can be
+   `http://localhost:5173` or your expected Vercel origin.
+7. Create/deploy the Blueprint and wait for the service to become healthy.
+8. Copy the assigned backend URL, e.g. `https://BACKEND.onrender.com`.
+9. Open `https://BACKEND.onrender.com/health`. Expect HTTP 200 with:
+
+```json
+{"status":"ok"}
+```
+
+| Render variable | Value |
 | --- | --- |
-| `DATABASE_URL` | Neon PostgreSQL URL with SSL |
-| `GEMINI_API_KEY` | Gemini API key |
-| `CORS_ORIGINS` | Exact Vercel origin; comma-separated additional origins |
-| `R2_ACCOUNT_ID` | Cloudflare account ID |
-| `R2_ACCESS_KEY_ID` | Bucket-scoped R2 S3 access key ID |
-| `R2_SECRET_ACCESS_KEY` | R2 S3 secret access key |
-| `R2_BUCKET_NAME` | Private bucket name |
-| `R2_ENDPOINT` | S3 API HTTPS origin, no bucket suffix; inferred from account ID if blank |
-| `GEMINI_MODEL` | Optional; defaults to existing `gemini-2.5-flash` |
+| `DATABASE_URL` | Neon connection string with SSL |
+| `GEMINI_API_KEY` | Backend Gemini API key |
+| `CORS_ORIGINS` | Initially `http://localhost:5173`, later your Vercel origin |
+| `GEMINI_MODEL` | Optional; Blueprint supplies `gemini-2.5-flash` |
 
-For local native OCR only, optional `TESSERACT_PATH` points to the executable and
-`POPPLER_PATH` to the binaries directory. Leave both unset in Docker. Docker sets
-standard `TMPDIR=/tmp` internally. Local `.env` is loaded from `backend/.env`.
-Only placeholders are in `backend/.env.example`.
+Render supplies `PORT` automatically. No storage credentials or `UPLOAD_DIR`
+are needed. Remove obsolete storage variables from an existing service. Do not
+set local Windows `TESSERACT_PATH`/`POPPLER_PATH` values on Render.
 
-### Vercel / frontend
+The Dockerfile uses `backend` as its build context, installs Tesseract and Poppler,
+runs as a non-root user, sets `TMPDIR=/tmp`, and starts:
+
+```bash
+uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000} --workers 1 --timeout-graceful-shutdown 180
+```
+
+The health endpoint executes `SELECT 1`; database failure returns HTTP 503.
+It never calls Gemini. If startup cannot initialize the database, check the URL,
+SSL, connectivity and table permissions. No Render database needs to be created.
+
+For manual service setup, use Dockerfile `backend/Dockerfile`, Docker build
+context `backend`, health check `/health`, and leave the Docker command override
+empty. The Blueprint already sets these values.
+
+## E. Vercel
+
+Import the same GitHub repository into Vercel. Use Hobby for an eligible personal
+project and configure:
+
+| Setting | Value |
+| --- | --- |
+| Root Directory | `frontend` |
+| Framework | Vite |
+| Node.js | 24.x |
+| Install Command | `npm ci` |
+| Build Command | `npm run build` |
+| Output Directory | `dist` |
+
+Set this single browser-safe environment variable for Production:
 
 ```env
-VITE_API_BASE_URL=https://<render-backend>.onrender.com
+VITE_API_BASE_URL=https://BACKEND.onrender.com
 ```
 
-This is the only app environment variable needed by the browser. Do not add
-`/api` to the production origin. Never prefix backend secrets with `VITE_`.
+Use the Render origin with no `/api` suffix. Then deploy. The value is embedded
+at build time, so redeploy after changing it. If enabling Preview deployments,
+configure their API variable and explicitly allow their origin on the backend.
 
-## 4. Vercel deployment
+Never add `DATABASE_URL`, `GEMINI_API_KEY`, passwords or other backend secrets to
+Vercel/Vite variables. `vercel.json` retains the SPA rewrite to `index.html`, so
+React Router routes work when opened/refreshed directly.
 
-1. Import the same repository into a Vercel project on the free Hobby plan where
-   its usage terms apply.
-2. Choose **Root Directory: `frontend`**, **Framework: Vite**, **Node.js: 24.x**,
-   **Install Command: `npm ci`**, **Build Command: `npm run build`**, and
-   **Output Directory: `dist`**.
-3. Set `VITE_API_BASE_URL` to the Render origin above for Production. Set it for
-   Preview as well only if preview builds need backend access.
-4. Deploy. `frontend/vercel.json` retains the SPA rewrite to `index.html`, so
-   refreshing `/history` or `/documents/1` works.
-5. Set Render `CORS_ORIGINS` to the assigned Vercel origin, without a trailing
-   slash, e.g. `https://structify.vercel.app`. Multiple origins are comma-separated
-   and trimmed. For previews, explicitly allow a stable preview domain; no wildcard.
-6. Redeploy Vercel after changing the API URL: Vite embeds it at build time.
+## F. Final CORS update
 
-[Vite on Vercel](https://vercel.com/docs/frameworks/frontend/vite).
+After Vercel assigns `https://APP.vercel.app`, set this in Render:
 
-## 5. Preserve existing local PDFs (optional)
-
-Database JSON/history is preserved automatically. Old rows have no R2 key until
-originals are migrated; their PDF endpoint returns a helpful 404 until then.
-Do this from the machine that contains the original PDFs, before removing any
-old disk or changing hosts. Configure the same Neon/R2 credentials in local `.env`.
-Stop uploads on the old deployment during migration. Do not run a second API
-worker against the same database during the cutover.
-
-From `backend`, first preview (no writes to PostgreSQL or R2):
-
-```bash
-python -B scripts/migrate_local_pdfs.py --upload-dir uploads/originals
+```env
+CORS_ORIGINS=https://APP.vercel.app
 ```
 
-Then explicitly apply:
+Use no trailing slash. Save and restart/redeploy the Render service to load the
+new value. Multiple explicit origins can be comma-separated, for example:
 
-```bash
-python -B scripts/migrate_local_pdfs.py --upload-dir uploads/originals --apply
+```env
+CORS_ORIGINS=https://APP.vercel.app,http://localhost:5173
 ```
 
-The script preserves IDs/JSON/timestamps and never deletes local files. It
-prefers `<id>.pdf`, otherwise a safe filename under the supplied folder. Duplicate
-legacy names are ambiguous and skipped unless you supply each original as
-`<id>.pdf`; an original already overwritten by the old app cannot be recovered
-by this script. It skips rows with R2 keys and uses deterministic keys for reruns
-after an interrupted DB commit. Check all reported problems before deleting any
-backup. Use an absolute `--upload-dir` when originals are elsewhere.
+Whitespace is trimmed. Wildcard `*` is rejected with credentials. CORS controls
+browser access; it is not authentication.
 
-## Local development and verification
+## G. Smoke test
 
-From `backend`:
+1. Open the deployed frontend.
+2. Upload a digital PDF.
+3. Confirm processing completes.
+4. Inspect the extracted JSON/data and test copy/download.
+5. Upload a scanned PDF.
+6. Confirm OCR works and processing completes.
+7. Upload two PDFs with the same filename.
+8. Confirm both database records remain distinct (different document IDs).
+9. Open `/history` directly and refresh it.
+10. Open a `/documents/<id>` detail route directly and refresh it.
+11. Restart/redeploy Render.
+12. Confirm previously extracted results still exist in Neon.
+13. Confirm the app does **not** expect original PDFs to remain available:
+    detail pages show saved JSON only, and old `/pdf/<id>` links return **410 Gone**.
 
-```bash
-python -m venv venv
-# Activate: Windows venv/Scripts/activate; Linux/macOS source venv/bin/activate
-python -m pip install -r requirements.txt
-# Copy .env.example to .env and fill Neon, Gemini, and R2 values.
-uvicorn main:app --reload --port 8000
-```
+Permanent PDF preview is intentionally unavailable. The sample files under
+`backend/test_files` can be used for digital/scanned tests.
 
-Install Tesseract and Poppler locally or use Docker for the API:
+## Local development and checks
 
-```bash
-docker build -t structify-api ./backend
-docker run --rm --env-file backend/.env -p 8000:8000 structify-api
-```
+From `backend`, create/activate a Python 3.12 virtual environment, install
+`requirements.txt`, and copy `.env.example` to `.env` with your backend values.
+For native local OCR only, optional `TESSERACT_PATH` and `POPPLER_PATH` can identify
+binaries not on PATH. Start with `uvicorn main:app --reload --port 8000`.
 
-The Docker commands run from repository root. Remove local Windows OCR path
-variables from the env file when using Docker. No volume mount is required.
+From `frontend`, run `npm ci` and `npm run dev`. Vite's `/api` proxy targets
+localhost port 8000; no frontend env file is required locally. If using an env
+file, use your actual API origin rather than the example's deployment placeholder.
 
-From `frontend`:
-
-```bash
-npm ci
-npm run dev
-```
-
-Vite proxies `/api` to `http://127.0.0.1:8000`; no frontend `.env` is needed locally.
-Local backend CORS defaults to `http://localhost:5173`.
-
-Checks:
+Run:
 
 ```bash
-# frontend
+# From frontend
 npm ci
 npm run lint
 npm run build
-# backend
+node --test tests/deployment.test.js
+
+# From backend
 python -B -m unittest discover -s tests -v
-python -m pip check
+
+# From repository root, with Docker running
+docker build -t structify-api:deployment-check ./backend
 ```
 
-The regression suite mocks R2/Gemini, exercises HTTP routes, cleanup and error
-handling, uses SQLite for portable CRUD checks, and compiles the PostgreSQL schema.
-It does not prove live Neon/R2 permissions or real Gemini outputs. After deploying:
+## Operating limits and compatibility
 
-- Upload both digital and scanned sample PDFs and verify JSON + original preview.
-- Upload two PDFs with the same name; confirm their originals differ as expected.
-- Refresh a History/detail URL directly on Vercel.
-- Restart Render and verify completed results and original PDFs still work.
-- Confirm interrupted `processing` records become `failed` with an explanation.
-- Check failed processing preserves the R2 original and leaves no temporary files.
+Uploads use unique temporary directories, including for duplicate filenames.
+The background task owns its temporary original and cleans it in `finally` after
+success, OCR/Gemini failure or database failure. Invalid requests clean up before
+returning. OCR renders one bounded-size page at a time. Native local development
+uses the OS temporary directory; Docker uses `/tmp`.
 
-## Demo reliability and access limits
+Run only one worker/instance. On restart, interrupted `processing` records become
+failed and must be uploaded again. Forced termination cannot execute cleanup;
+temporary files are disposable and never required after restart. An old nullable
+`storage_key` column, if present, remains unused rather than being dropped.
+Existing databases/JSON and local user files are not deleted by preparation.
 
-Processing is in-process. Exactly one instance/worker is required; startup marks
-leftover processing rows failed, never requeues them automatically. Re-upload
-interrupted jobs. A forced process kill can leave temporary files until the
-instance is replaced; they are never needed for later API behavior. No Celery,
-Redis, queue service, paid disk, or horizontal scaling was added.
+Render Free may sleep. API requests allow up to 120 seconds for a slow wake-up;
+network/timeout errors explain what to retry. Result polling waits two seconds
+**after each response**, so requests never overlap; reset/navigation abort polling.
+There are no automatic upload retries, which could create duplicate records. If
+an upload response times out, check History before uploading the same file again.
 
-There is still no authentication or per-user isolation. CORS is not authentication:
-anyone who can call this API can access its documents and request signed URLs.
-Use non-sensitive demo data; add backend authentication before hosting private
-user documents. Bucket privacy alone does not provide application-level access
-control. Back up Neon and R2 independently. No real credentials, cloud resources,
-or live migrations are created by this implementation.
+The app has no user authentication or per-user document isolation. Use non-sensitive
+demo documents until backend access control is implemented. Free-tier quotas,
+Gemini model availability and Render resource limits apply. No paid storage or
+billing configuration is required by the app. Render may independently request
+card verification for some accounts; do not enable paid billing to follow this
+no-card setup. Provider verification cannot be guaranteed by repository code.
 
-## Validation performed for this change
+References: [Render Free](https://render.com/docs/free),
+[Render verification](https://community.render.com/t/the-deployement-of-a-web-service-fails/36005),
+[Vercel Vite deployment](https://vercel.com/docs/frameworks/frontend/vite),
+[Neon connections](https://github.com/neondatabase/website/blob/main/content/docs/get-started/connect-neon.md),
+[Gemini billing](https://ai.google.dev/gemini-api/docs/billing/).
 
-- `npm ci`: passed after repairing an existing inconsistent transitive lock entry.
+## Validation from repository preparation
+
+- `npm ci`: passed; npm reported zero known vulnerabilities.
 - `npm run lint`: passed.
-- `npm run build`: passed (production Vite build).
-- npm dependency audit after compatible lockfile fixes: zero known vulnerabilities.
-- `python -B -m unittest discover -s tests -v`: 22 tests passed.
-- `python -m pip check`: passed.
-- Python AST syntax checks, deployment configuration assertions, stale runtime
-  Mongo/local-storage reference search, changed-file local-secret comparison,
-  and `git diff --check`: passed.
-- Docker build: attempted, but Docker Desktop's Linux engine was not running.
-- Live Neon/R2/Gemini end-to-end behavior and Linux OCR container: not verified.
-  No live database schema/data migration or cloud deployment was performed.
+- `npm run build`: passed.
+- `node --test tests/deployment.test.js`: 5 tests passed.
+- `python -B -m unittest discover -s tests -v`: 16 tests passed.
+- Python syntax/imports, static Render/Vercel config checks, environment-ignore
+  checks and `git diff --check`: passed.
+- Secret scan: no suspicious matches in tracked working files or 133 historical
+  source/configuration blobs. Local credentials were compared without printing
+  or modifying them. Pattern scanning is not a guarantee that every secret is detectable.
+- Runtime search found no active R2/S3/boto3/MongoDB/legacy Gemini integration or
+  permanent upload path. Remaining mentions describe compatibility or regression tests.
+- Docker build: attempted; Docker Desktop's Linux engine was not running, so no
+  image was built or tested.
 
-The initial sandboxed npm installation failed; the clean install succeeded with
-network access after lockfile repair. Lint/build passed both inside and outside
-the sandbox. Backend HTTP tests likewise ran
-outside the Windows sandbox for asyncio loopback support. Starlette emits a
-TestClient/httpx deprecation warning, but all tests pass.
+Backend tests mock external services and use SQLite for portable CRUD tests plus
+PostgreSQL schema compilation. They emit a Starlette TestClient/httpx deprecation
+warning. Real Neon permissions, Gemini processing, Linux OCR/container behavior
+and deployed routing still need the smoke test above. No Git push, provider-account
+change or live deployment was performed.

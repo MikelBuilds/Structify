@@ -4,10 +4,8 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from threading import BoundedSemaphore
 
-from botocore.exceptions import ClientError
 from fastapi import BackgroundTasks, Depends, FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import RedirectResponse
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
@@ -19,7 +17,6 @@ from app.crud.document_crud import (
 )
 from app.services.extraction_service import extract_text
 from app.services.gemini_service import extract_invoice_data
-from app.services.storage_service import get_storage, new_storage_key
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger(__name__)
@@ -57,13 +54,11 @@ def health(db: Session = Depends(get_db)):
     return {"status": "ok"}
 
 
-def process_document(document_id: int, storage_key: str):
-    stage = "PDF download"
+def process_document(document_id: int, temporary: TemporaryDirectory):
+    stage = "Text extraction"
     try:
-        with processing_slot, TemporaryDirectory(prefix="structify-ocr-") as directory:
-            file_path = Path(directory) / "original.pdf"
-            get_storage().download_pdf(storage_key, file_path)
-            stage = "Text extraction"
+        with processing_slot:
+            file_path = Path(temporary.name) / "original.pdf"
             ocr_result = extract_text(str(file_path))
             stage = "Gemini processing"
             structured_data = extract_invoice_data(ocr_result["text"])
@@ -83,7 +78,8 @@ def process_document(document_id: int, storage_key: str):
                     mark_failed(db, document, message)
         except Exception:
             logger.error("Could not persist failure for document %s", document_id)
-        # TemporaryDirectory removes local files even on processing/DB failure.
+    finally:
+        temporary.cleanup()
 
 
 @app.post("/upload")
@@ -92,9 +88,10 @@ def upload_pdf(background_tasks: BackgroundTasks, file: UploadFile = File(...),
     filename = (file.filename or "").replace("\\", "/").rsplit("/", 1)[-1]
     if not filename.lower().endswith(".pdf"):
         raise HTTPException(status_code=400, detail="Only PDF files are allowed.")
-    # Sync route runs in FastAPI's threadpool; R2/DB/file I/O do not block the event loop.
-    with TemporaryDirectory(prefix="structify-upload-") as directory:
-        file_path = Path(directory) / "original.pdf"
+    # The background task owns this directory after the upload succeeds.
+    temporary = TemporaryDirectory(prefix="structify-upload-")
+    try:
+        file_path = Path(temporary.name) / "original.pdf"
         with file_path.open("wb") as target:
             size = 0
             while chunk := file.file.read(1024 * 1024):
@@ -106,15 +103,11 @@ def upload_pdf(background_tasks: BackgroundTasks, file: UploadFile = File(...),
                 target.write(chunk)
             if size == 0:
                 raise HTTPException(status_code=400, detail="File is not a valid PDF.")
-        key = new_storage_key(filename)
-        document = create_document(db, filename, key)
-        try:
-            get_storage().upload_pdf(file_path, key, filename)
-        except Exception as error:
-            mark_failed(db, document, f"PDF storage failed ({type(error).__name__}). Please upload again.")
-            raise HTTPException(status_code=502, detail="Unable to store PDF in R2. Please try again.") from None
-    # Pass only durable identifiers. Background work obtains its own temporary copy.
-    background_tasks.add_task(process_document, document.id, key)
+        document = create_document(db, filename)
+        background_tasks.add_task(process_document, document.id, temporary)
+    except BaseException:
+        temporary.cleanup()
+        raise
     return {"message": "Document uploaded successfully", "task_id": document.id, "status": "processing"}
 
 
@@ -133,19 +126,7 @@ def list_documents(db: Session = Depends(get_db)):
     return get_all_documents(db)
 
 
-@app.get("/pdf/{document_id}")
-def serve_pdf(document_id: int, db: Session = Depends(get_db)):
-    document = get_document(db, document_id)
-    if not document:
-        raise HTTPException(status_code=404, detail="Document not found")
-    if not document.storage_key:
-        raise HTTPException(status_code=404, detail="Original PDF has not been migrated to R2")
-    try:
-        url = get_storage().signed_pdf_url(document.storage_key, document.filename)
-    except ClientError as error:
-        if error.response.get("Error", {}).get("Code") in ("404", "NoSuchKey", "NotFound"):
-            raise HTTPException(status_code=404, detail="PDF not found in storage") from None
-        raise HTTPException(status_code=502, detail="PDF storage is unavailable") from None
-    except Exception:
-        raise HTTPException(status_code=502, detail="PDF storage is unavailable") from None
-    return RedirectResponse(url, status_code=307, headers={"Cache-Control": "no-store"})
+@app.get("/pdf/{document_id}", deprecated=True)
+def serve_pdf(document_id: int):
+    # Explicit response for old bookmarks/clients; original files are never retained.
+    raise HTTPException(status_code=410, detail="Original PDFs are deleted after processing. Only extracted results are retained.")

@@ -1,11 +1,12 @@
 import axios from 'axios';
+import { API_TIMEOUT_MS, apiErrorMessage, normalizeApiBaseUrl } from './apiConfig';
 
-export const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL?.trim() || '/api').replace(/\/+$/, '');
+export const API_BASE_URL = normalizeApiBaseUrl(import.meta.env.VITE_API_BASE_URL);
 
 // ── Base client ────────────────────────────────────────────────
 const api = axios.create({
   baseURL: API_BASE_URL,
-  timeout: 120000,
+  timeout: API_TIMEOUT_MS,
   headers: {
     Accept: 'application/json',
   },
@@ -21,12 +22,7 @@ api.interceptors.request.use(
 api.interceptors.response.use(
   (response) => response,
   (error) => {
-    const message =
-      error.response?.data?.detail ||
-      error.response?.data?.message ||
-      error.message ||
-      'An unexpected error occurred';
-    return Promise.reject(new Error(message));
+    return Promise.reject(new Error(apiErrorMessage(error)));
   }
 );
 
@@ -38,12 +34,12 @@ api.interceptors.response.use(
  * @param {function} onUploadProgress  - progress callback (0-100)
  * @returns {Promise<{task_id: number, status: string}>}
  */
-export const uploadDocument = async (file, onUploadProgress) => {
+export const uploadDocument = async (file, onUploadProgress, signal) => {
   const formData = new FormData();
   formData.append('file', file);
 
   const { data } = await api.post('/upload', formData, {
-    headers: { 'Content-Type': 'multipart/form-data' },
+    signal,
     onUploadProgress: (event) => {
       if (onUploadProgress && event.total) {
         const percent = Math.round((event.loaded * 100) / event.total);
@@ -60,8 +56,8 @@ export const uploadDocument = async (file, onUploadProgress) => {
  * @param {number|string} taskId
  * @returns {Promise<{id, filename, status, created_at, structured_data}>}
  */
-export const getResult = async (taskId) => {
-  const { data } = await api.get(`/results/${taskId}`);
+export const getResult = async (taskId, signal) => {
+  const { data } = await api.get(`/results/${taskId}`, { signal });
   return data;
 };
 

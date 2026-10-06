@@ -4,16 +4,12 @@ import { useDocuments } from '../hooks/useDocuments';
 import StatusBadge    from '../components/StatusBadge';
 import JSONViewer     from '../components/JSONViewer';
 import LoadingSpinner from '../components/LoadingSpinner';
-import PDFPane        from '../components/PDFPane';
 
 /**
  * DocumentDetail page
  * Route: /documents/:id
  *
- * Layout (completed documents):
- *  Desktop  → 40% PDF | 60% data
- *  Tablet   → 50% / 50%
- *  Mobile   → stacked vertically
+ * Displays retained metadata and extracted JSON.
  */
 const DocumentDetail = () => {
   const { id }   = useParams();
@@ -118,17 +114,12 @@ const DocumentDetail = () => {
         </div>
       </div>
 
-      {/* Two-column layout for completed documents */}
+      {/* Extracted results; original PDFs are temporary and not retained. */}
       {doc.status === 'completed' && (
-        <div className="detail-split animate-slide-up" style={{ animationDelay: '80ms' }}>
-          {/* LEFT — PDF Preview */}
-          <div className="detail-split__pdf">
-            <div className="section-header" style={{ marginBottom: 12 }}>
-              <h2 className="section-title">PDF Preview</h2>
-            </div>
-            <PDFPane documentId={doc.id} filename={doc.filename} />
-          </div>
-
+        <div className="animate-slide-up" style={{ animationDelay: '80ms' }}>
+          <p className="text-sm text-muted" style={{ marginBottom: 16 }}>
+            Original PDFs are deleted after processing. Your extracted results are saved.
+          </p>
           {/* RIGHT — Extracted Data */}
           <div className="detail-split__data">
             <div className="section-header" style={{ marginBottom: 12 }}>
