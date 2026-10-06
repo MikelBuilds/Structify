@@ -31,7 +31,7 @@ Structify automates extraction of structured information from PDF documents.
 
 Instead of manually reading invoices or scanned documents, users can upload a PDF and receive structured JSON that can be stored, searched, or integrated into downstream systems.
 
-The result is instantly viewable in a JSON viewer, copyable to clipboard, and downloadable as a `.json` file — A React dashboard for uploading, monitoring and viewing extracted documents.
+The result is instantly viewable in a JSON viewer, copyable to clipboard, and downloadable as a `.json` file — A React dashboard for uploading, monitoring and viewing extracted documents..
 
 ---
 
