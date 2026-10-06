@@ -1,4 +1,4 @@
-> Deployment: see [DEPLOYMENT.md](DEPLOYMENT.md) for Vercel + Render Free + Neon with temporary PDFs.
+> **Live app: [structify-teal.vercel.app](https://structify-teal.vercel.app/)** · [Deployment guide](DEPLOYMENT.md)
 
 <h1 align="center">
   <br>
@@ -8,16 +8,16 @@
 </h1>
 
 <p align="center">
-  Upload any PDF. Get clean, structured JSON — powered by Gemini AI.
+  Upload a digital or scanned PDF. Get clean, structured JSON — powered by Gemini AI.
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Python-3.11+-3776AB?style=flat-square&logo=python&logoColor=white" />
+  <img src="https://img.shields.io/badge/Python-3.12-3776AB?style=flat-square&logo=python&logoColor=white" />
   <img src="https://img.shields.io/badge/FastAPI-0.137-009688?style=flat-square&logo=fastapi&logoColor=white" />
   <img src="https://img.shields.io/badge/React-19-61DAFB?style=flat-square&logo=react&logoColor=black" />
   <img src="https://img.shields.io/badge/Gemini-2.5%20Flash-4285F4?style=flat-square&logo=google&logoColor=white" />
   <img src="https://img.shields.io/badge/PostgreSQL-Neon-336791?style=flat-square&logo=postgresql&logoColor=white" />
-  <img src="https://img.shields.io/badge/Vite-8.0-646CFF?style=flat-square&logo=vite&logoColor=white" />
+  <img src="https://img.shields.io/badge/Vite-8-646CFF?style=flat-square&logo=vite&logoColor=white" />
   <img src="https://img.shields.io/badge/License-MIT-green?style=flat-square" />
 </p>
 
@@ -25,17 +25,17 @@
 
 ## 📖 Overview
 
-**Structify** is a full-stack AI powered document extraction system. Drop in a PDF  digital or scanned and Structify automatically extracts all meaningful fields into structured JSON using a smart dual-pipeline: native text parsing for digital PDFs, and Tesseract OCR for scanned images, both routed through **Google Gemini 2.5 Flash** for intelligent data structuring.
+**Structify** turns digital and scanned PDFs into structured JSON. It extracts native text with **pdfplumber**, falls back to **Tesseract OCR** for scanned documents, and uses **Google Gemini** to structure the extracted text.
 
-Structify automates extraction of structured information from PDF documents.
+The React dashboard supports uploads, processing status, document history, and a JSON viewer with copy and download actions. Extracted text, JSON, and document metadata are saved in **Neon PostgreSQL**.
 
-Instead of manually reading invoices or scanned documents, users can upload a PDF and receive structured JSON that can be stored, searched, or integrated into downstream systems.
-
-The result is instantly viewable in a JSON viewer, copyable to clipboard, and downloadable as a `.json` file — A React dashboard for uploading, monitoring and viewing extracted documents..
+**Original PDFs are temporary:** the backend processes them under `/tmp` in Docker and deletes them after processing, including failed jobs. Saved documents display extracted results only; original-PDF previews are no longer available. No Cloudflare R2, object-storage account, or persistent disk is required.
 
 ---
 
 ## 🎬 Demo
+
+Try the [live Vercel app](https://structify-teal.vercel.app/). The recordings below show an earlier version and may include the retired PDF preview.
 
 <img src="frontend/src/assets/DEMO_STRUCTIFY.gif" alt="Structify AI Document Extraction Demo" width="100%" />
 
@@ -48,15 +48,19 @@ The result is instantly viewable in a JSON viewer, copyable to clipboard, and do
 
 ### Backend
 -  **PDF Upload** — validates file type (`.pdf` only) and enforces a 20 MB size limit
--  **Non-blocking Processing** — upload returns instantly; extraction runs as a FastAPI background task
+-  **Non-blocking Processing** — returns a task ID after accepting the upload; extraction runs as a FastAPI background task
 -  **Dual Extraction Pipeline** — pdfplumber for digital PDFs → Tesseract OCR fallback for scanned documents
--  **Gemini AI Structuring** — raw extracted text is sent to Gemini 2.5 Flash with a strict prompt that returns clean, validated JSON (no hallucinations, null-safe, date-normalized)
+-  **Gemini AI Structuring** — uses the supported `google-genai` SDK and parses the response as JSON; the prompt requests nulls for missing values and normalized dates
 -  **Status Tracking** — documents cycle through `processing` → `completed` / `failed`
--  **Temporary PDFs** — originals are deleted after processing; extracted results persist in Neon
+-  **Temporary PDFs** — unique temporary directories prevent filename collisions; originals and OCR images are cleaned up on success or failure
+-  **Bounded OCR Rendering** — scans are rendered one page at a time with bounded image dimensions
+-  **Failure Recovery** — processing errors are saved; jobs interrupted by a backend restart are marked failed and can be reuploaded
+-  **Database Health Check** — `/health` checks database connectivity without calling Gemini
 
 ### Frontend
 -  **Drag-and-Drop Upload Zone** — with real-time HTTP upload progress bar
--  **Live Polling** — auto-polls every 2 seconds until extraction completes or fails
+-  **Live Polling** — waits 2 seconds after each response, avoids overlapping requests, and cancels on reset or navigation
+-  **Connection Handling** — 120-second request timeout and clearer connection/cold-start errors; browser timer binding fixes prevent the upload “Illegal invocation” error
 -  **3-Stage Pipeline Tracker** — visual Uploading → Processing → Complete stepper
 -  **Dashboard** — stat cards, recent documents (last 8), search, and filter chips
 -  **History Page** — full document list with live search by filename / status / ID
@@ -102,13 +106,23 @@ The result is instantly viewable in a JSON viewer, copyable to clipboard, and do
 
 ##  Architecture
 
-![Architecture](frontend/src/assets/Architecture.png)
+```mermaid
+flowchart LR
+    UI[React / Vercel] --> API[FastAPI / Render]
+    API --> TMP[Temporary PDF / tmp]
+    TMP --> TEXT[pdfplumber or Tesseract OCR]
+    TEXT --> AI[Gemini]
+    AI --> DB[(Neon PostgreSQL)]
+    API <--> DB
+```
+
+The backend saves extracted results and metadata, then removes temporary files. Run **one backend instance with one Uvicorn worker**: background tasks run in that process and are not a durable job queue.
 
 ---
 
 ##  Database Schema
 
-Single table: **`documents`**
+Single table: **`documents`**. Startup applies additive schema updates. New installations do not use `storage_key`; an existing legacy column can remain unused for compatibility.
 
 | Column | Type | Description |
 |---|---|---|
@@ -131,6 +145,7 @@ Base URL: `http://localhost:8000`
 
 | Method | Endpoint | Description |
 |---|---|---|
+| `GET` | `/health` | Database readiness check: 200 when available, 503 otherwise |
 | `POST` | `/upload` | Upload a PDF file for processing |
 | `GET` | `/results/{document_id}` | Poll extraction status and get structured data |
 | `GET` | `/documents` | List all documents (newest first) |
@@ -149,7 +164,7 @@ Interactive API docs available at `http://localhost:8000/docs` (Swagger UI).
 | **Digital PDF Parsing** | pdfplumber |
 | **OCR Engine** | Tesseract + pytesseract |
 | **PDF → Image** | pdf2image + Poppler |
-| **Database** | PostgreSQL (Neon serverless) via SQLAlchemy |
+| **Database** | PostgreSQL (Neon serverless) via SQLAlchemy + psycopg 3 |
 | **Frontend** | React 19 + Vite 8 |
 | **Routing** | React Router DOM v7 |
 | **HTTP Client** | Axios |
@@ -168,8 +183,22 @@ raw extracted text and metadata in Neon, then deletes the original PDF. No objec
 storage or persistent disk is needed. The detail page displays retained results;
 original-PDF preview is disabled.
 
-Backend settings: `DATABASE_URL`, `GEMINI_API_KEY`, `CORS_ORIGINS`, plus optional
-`GEMINI_MODEL`. Frontend: `VITE_API_BASE_URL=https://<backend>.onrender.com`.
+| Service | Configuration |
+|---|---|
+| Render backend | `DATABASE_URL`, `GEMINI_API_KEY`, `CORS_ORIGINS` |
+| Optional backend setting | `GEMINI_MODEL` (defaults to `gemini-2.5-flash`) |
+| Vercel frontend | `VITE_API_BASE_URL` set to your public HTTPS backend URL |
+
+For this frontend deployment, set Render's allowed origin to:
+
+```dotenv
+CORS_ORIGINS=https://structify-teal.vercel.app
+```
+
+The origin has no trailing slash. Add other allowed origins as a comma-separated list when needed. Set Vercel's project root to `frontend`, install command to `npm ci`, build command to `npm run build`, and output directory to `dist`. Redeploy the frontend after changing `VITE_API_BASE_URL`, because Vite embeds it at build time. `frontend/vercel.json` handles direct navigation to app routes.
+
+If uploads report “Cannot reach the backend,” verify the configured backend URL, check its `/health` endpoint, and ensure `CORS_ORIGINS` includes the exact frontend origin. A working frontend alone does not confirm backend connectivity.
+
 Use free plans without enabling paid billing. Render can independently request
 account verification; see [DEPLOYMENT.md](DEPLOYMENT.md) for that limitation and
 exact setup steps. Free instances may sleep and take longer on the first request.
@@ -180,7 +209,7 @@ exact setup steps. Free instances may sleep and take longer on the first request
 
 Make sure the following are installed on your system:
 
-- Python 3.11+
+- Python 3.12 (used by the Docker image)
 - Node.js 24.x
 - [Tesseract OCR](https://github.com/UB-Mannheim/tesseract/wiki) (Windows installer)
 - [Poppler for Windows](https://github.com/oschwartz10612/poppler-windows/releases)
@@ -192,8 +221,8 @@ Make sure the following are installed on your system:
 ### 1. Clone the Repository
 
 ```bash
-git clone https://github.com/your-username/structify.git
-cd structify
+git clone https://github.com/MikelBuilds/Structify-.git Structify
+cd Structify
 ```
 
 ---
@@ -232,13 +261,15 @@ Interactive docs at `http://localhost:8000/docs`
 
 ### 3. Frontend Setup
 
+Open another terminal at the repository root:
+
 ```bash
 cd frontend
 npm ci
 npm run dev
 ```
 
-The app will be live at `http://localhost:5173`
+The app will be live at `http://localhost:5173`. For local development, leave `VITE_API_BASE_URL` unset: Vite proxies `/api` to `http://127.0.0.1:8000`. If a local `frontend/.env` already points to production, remove that override to use the local backend. Use `CORS_ORIGINS=http://localhost:5173` for local backend configuration.
 
 ---
 
@@ -249,12 +280,15 @@ structify/
 ├── backend/
 │   ├── main.py                   # FastAPI app + all route definitions
 │   ├── requirements.txt
-│   ├── .env                      # Environment variables (never commit this)
+│   ├── Dockerfile                # Python + Tesseract + Poppler, one worker
+│   ├── .env.example              # Backend configuration template
+│   ├── tests/test_deployment.py  # Backend regression checks
 │   └── app/
 │       ├── config.py             # Settings class
 │       ├── database/
 │       │   ├── connection.py     # SQLAlchemy engine + session
-│       │   └── models.py         # Document ORM model
+│       │   ├── models.py         # Document ORM model
+│       │   └── schema.py         # Additive schema updates
 │       ├── crud/
 │       │   └── document_crud.py  # DB operations
 │       └── services/
@@ -265,6 +299,9 @@ structify/
 │
 └── frontend/
     ├── index.html
+    ├── vercel.json               # SPA route rewrites
+    ├── .env.example              # API URL template
+    ├── tests/deployment.test.js  # API configuration + polling checks
     ├── vite.config.js
     ├── package.json
     └── src/
@@ -275,14 +312,16 @@ structify/
         │   └── useDocuments.js   # Fetch list + fetch single doc
         ├── pages/
         │   ├── Dashboard.jsx     # Upload + stats + recent docs
-        │   ├── DocumentDetail.jsx # Split PDF+JSON view
+        │   ├── DocumentDetail.jsx # Metadata + saved JSON view
         │   └── History.jsx       # Full history with search & filter
         ├── components/
         │   ├── upload/UploadCard.jsx   # Drag-drop zone + progress stages
         │   ├── JSONViewer.jsx          # Recursive collapsible JSON tree
         │   └── documents/             # DocumentCard + DocumentList
         ├── styles/               # CSS tokens, global, components, animations
-        └── utils/formatters.js   # formatKey, formatValue, formatCurrency
+        └── utils/
+            ├── formatters.js    # Key, value, and currency formatting
+            └── resultPolling.js # Sequential, cancellable polling
 ```
 
 ---
@@ -298,9 +337,29 @@ structify/
    - Return only valid JSON
 4. **Storage** — Gemini's JSON response is parsed and stored in a `JSONB` column alongside the raw text, PDF type, and processing method
 5. **Cleanup** — Temporary originals and OCR page images are removed on success or failure; only extracted results and metadata persist.
-6. **Retrieval** — Frontend polls `GET /results/{id}` every 2 seconds until `status` is no longer `"processing"`
+6. **Retrieval** — Frontend polls `GET /results/{id}`, waiting 2 seconds after each response, until the job completes or fails.
+
+AI extraction can make mistakes; review results before using them in downstream workflows.
 
 ---
+
+## Development Checks
+
+From `backend` with dependencies installed:
+
+```bash
+python -B -m unittest discover -s tests -v
+```
+
+From `frontend`:
+
+```bash
+node --test tests/deployment.test.js
+npm run lint
+npm run build
+```
+
+See [DEPLOYMENT.md](DEPLOYMENT.md) for deployment and upload smoke checks. Authentication and per-user isolation are not implemented yet; use non-sensitive demo documents on a shared deployment.
 
 ##  Potential Improvements
 
